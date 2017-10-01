@@ -90,3 +90,70 @@ mov	fp, #0
 ```
 
 >为后面函数调用设置栈空间,0xd0036000是自己指定的，也可以按照三星指定的栈地址。主要原因是因为在被调用的函数里面还有第二层调用。
+
+##1.8 lowlevel_init
+
+###1.8.1 检查复位状态
+> 冷启动DDR需要初始化，热启动或者低功耗 不需要
+
+###1.8.2 IO 状态恢复
+> 无需关系
+
+###1.8.3 关闭看门狗
+> 参考裸机代码
+###1.8.4 SRAM SROM 相关GPIO设置
+>
+###1.8.5 开发板供电锁存
+
+```Assembly
+/* PS_HOLD pin(GPH0_0) set to high */
+ldr	r0, =(ELFIN_CLOCK_POWER_BASE + PS_HOLD_CONTROL_OFFSET)
+ldr	r1, [r0]
+orr	r1, r1, #0x300
+orr	r1, r1, #0x1
+str	r1, [r0]
+```
+###1.8.6 判断当前代码执行位置
+
+```Assembly
+/* when we already run in ram, we don't need to relocate U-Boot.
+ * and actually, memory controller must be configured before U-Boot
+ * is running in ram.
+ */
+ldr	r0, =0xff000fff
+bic	r1, pc, r0		/* r0 <- current base addr of code */
+ldr	r2, _TEXT_BASE		/* r1 <- original base addr in ram */
+bic	r2, r2, r0		/* r0 <- current base addr of code */
+cmp     r1, r2                  /* compare r0, r1                  */
+beq     1f			/* r0 == r1 then skip sdram init   */
+```
+
+
+__判断位置技术__:
+> bic	r1, pc, r0，意思是：将PC的值中的某些位清0，剩下的一些特殊位赋值给r1(ro中那些为1的位清0) ,r1 = pc & ~(r0).清除低地址位，然后比较两者地址是否一致。相等时在DDR中。
+
+
+> 判断当前位置是在SRAM中还是DDR中,原因如下：
++ BL1(Uboot 的前一部分)在SRAM中有一份，在DDR中也有一份。因此如果是冷启动，当前代码在SRAM中运行的BL1.如果是热启动，这时候在DDR中。
++ 判断当前运行代码位置是有用的，比如判断当前地址，确定是否要执行时钟初始化和DDR初始化。
+> beq 1f ，如果相等，就跳到 1 处执行。
+
+###1.8.7 system_clock_init
+>bl system_clock_init
+
+###1.8.8 mem_ctrl_asm_init
+> bl mem_ctrl_asm_init 初始化内存，在`uboot/cpu/s5pc110/cpu_init.s`
+
++ 在裸机中DMC0的 256MB 内存地址范围为0x20000000 - 0x2FFFFFFF,uboot中为0x30000000 - 0x3FFFFFFF.DMC0上允许的地址是20000000 - 3FFFFFFF,我们实际上只接了256MB。
+
++ 在uboot中。DMC0 为0x30000000-0x3FFFFFFF.DMC1 为0x40000000 - 4FFFFFFF.
+
+
+###1.8.9 uart_asm_init
+
+> 串口初始化,发送 "O"
+
+###1.8.10 tzpc_init
+
+结束  发送 "K"
+所以在第一阶段完成后，串口发送"OK"
